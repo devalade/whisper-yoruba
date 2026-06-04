@@ -1,0 +1,29 @@
+# Large model binaries and fine-tune outputs
+models/
+
+# Generated / downloadable data — rebuild with `make sample`, `make index`
+data/audio/
+data/wikipedia/
+data/outputs/
+
+# Local runtime artifacts
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Local secrets / env
+.env
+.env.local
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Personal Claude Code settings
+.claude/settings.local.json

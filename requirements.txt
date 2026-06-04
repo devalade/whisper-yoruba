@@ -1,0 +1,35 @@
+# M1 - ASR
+mlx-whisper>=0.4.0
+
+# M2 / M3 / M5 - HuggingFace stack
+transformers>=4.46,<5  # 5.x broke slow-SP tokenizers, breaking mT5/NLLB checkpoints
+torch>=2.4.0
+sentencepiece>=0.2.0
+sacremoses>=0.1.1
+protobuf>=4.0.0       # required for mT5/NLLB SentencePiece tokenizer conversion
+
+# M4 - RAG
+faiss-cpu>=1.8.0
+sentence-transformers>=3.0.0
+llama-cpp-python>=0.2.90
+
+# Audio
+soundfile>=0.12.1
+sounddevice>=0.4.7   # mic capture + playback for --mic mode
+librosa>=0.10.2
+numpy>=1.26.0
+scipy>=1.13.0
+
+# Utils
+pyyaml>=6.0
+tqdm>=4.66.0
+
+# Eval
+jiwer>=3.0.0
+datasets>=2.20.0    # FLEURS streaming for scripts/eval_wer.py
+
+# Fine-tuning (scripts/finetune_whisper.py — run on a CUDA box, not on the Mac)
+peft>=0.11.0
+accelerate>=0.30.0
+evaluate>=0.4.0
+tensorboard>=2.16.0
