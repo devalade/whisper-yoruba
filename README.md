@@ -1,5 +1,7 @@
 # Yoruba Voice Query Pipeline
 
+[![GitHub](https://img.shields.io/badge/GitHub-devalade%2Fwhisper--yoruba-181717?logo=github)](https://github.com/devalade/whisper-yoruba)
+
 End-to-end voice assistant for Yoruba speakers. Speak a question in Yoruba, get
 a spoken Yoruba answer grounded in an English Wikipedia corpus. Runs fully
 locally on Apple Silicon — no cloud calls after the initial model downloads.
