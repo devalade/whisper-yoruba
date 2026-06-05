@@ -233,17 +233,6 @@ def main() -> None:
     model = get_peft_model(model, lora)
     model.print_trainable_parameters()
 
-    # PEFT freezes the base; with gradient checkpointing on, no saved tensor
-    # has requires_grad=True so the backward pass has nothing to differentiate
-    # through. The hook flips the encoder's conv1 output back on. Whisper has
-    # no input embedding, so enable_input_require_grads() doesn't apply — this
-    # is the Whisper-specific equivalent.
-    def _make_inputs_require_grad(module, args, output):
-        output.requires_grad_(True)
-    model.base_model.model.model.encoder.conv1.register_forward_hook(
-        _make_inputs_require_grad
-    )
-
     training_args = Seq2SeqTrainingArguments(
         output_dir=args.output_dir,
         per_device_train_batch_size=args.batch_size,
@@ -254,6 +243,10 @@ def main() -> None:
         num_train_epochs=args.epochs,
         bf16=torch.cuda.is_available(),
         gradient_checkpointing=True,
+        # use_reentrant=False is the modern checkpointing impl — required with
+        # PEFT because the legacy reentrant version errors out when the base
+        # model is frozen ("element 0 of tensors does not require grad").
+        gradient_checkpointing_kwargs={"use_reentrant": False},
         predict_with_generate=True,
         generation_max_length=225,
         eval_strategy="epoch",
