@@ -233,14 +233,16 @@ def main() -> None:
     model = get_peft_model(model, lora)
     model.print_trainable_parameters()
 
-    # PEFT freezes the base; gradient checkpointing then has no input that
-    # requires grad, breaking the backward pass. This hook re-enables it.
-    if model.base_model.model.config.use_cache is False:
-        def make_inputs_require_grad(module, input, output):
-            output.requires_grad_(True)
-        model.base_model.model.model.encoder.conv1.register_forward_hook(
-            make_inputs_require_grad
-        )
+    # PEFT freezes the base; with gradient checkpointing on, no saved tensor
+    # has requires_grad=True so the backward pass has nothing to differentiate
+    # through. The hook flips the encoder's conv1 output back on. Whisper has
+    # no input embedding, so enable_input_require_grads() doesn't apply — this
+    # is the Whisper-specific equivalent.
+    def _make_inputs_require_grad(module, args, output):
+        output.requires_grad_(True)
+    model.base_model.model.model.encoder.conv1.register_forward_hook(
+        _make_inputs_require_grad
+    )
 
     training_args = Seq2SeqTrainingArguments(
         output_dir=args.output_dir,
