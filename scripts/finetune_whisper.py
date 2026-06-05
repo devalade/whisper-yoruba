@@ -251,6 +251,7 @@ def main() -> None:
         generation_max_length=225,
         eval_strategy="epoch",
         save_strategy="epoch",
+        save_total_limit=1,  # keep only best checkpoint — saves disk on small boxes
         logging_steps=25,
         report_to=["tensorboard"],
         load_best_model_at_end=True,
