@@ -1,5 +1,6 @@
-# M1 - ASR
-mlx-whisper>=0.4.0
+# M1 - ASR (mlx-whisper is Apple-Silicon only; on Linux GPU boxes it installs
+# a broken Python wrapper and breaks transformers' tensor sniffing)
+mlx-whisper>=0.4.0; sys_platform == "darwin"
 
 # M2 / M3 / M5 - HuggingFace stack
 transformers>=4.46,<5  # 5.x broke slow-SP tokenizers, breaking mT5/NLLB checkpoints
