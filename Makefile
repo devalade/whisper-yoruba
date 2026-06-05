@@ -1,10 +1,16 @@
-.PHONY: help install index sample run talk chat talk-hf chat-hf wer wer-mlx wer-hf wer-ft finetune finetune-smoke merge-lora test test-m1 test-m2 test-m3 test-m4 test-m5 test-chain clean-logs clean-outputs
+.PHONY: help install index sample run talk chat talk-hf chat-hf wer wer-mlx wer-hf wer-ft finetune finetune-smoke merge-lora gpu-ssh test test-m1 test-m2 test-m3 test-m4 test-m5 test-chain clean-logs clean-outputs
 
 PYTHON ?= $(HOME)/miniforge3/envs/yoruba/bin/python
 SAMPLE_WAV := data/audio/fleurs_yo_sample.wav
 OUTPUT_WAV := data/outputs/response.wav
 INPUT ?= $(SAMPLE_WAV)
 OUTPUT ?= $(OUTPUT_WAV)
+
+# --- Remote GPU (Vast.ai) ---
+# Override per-instance: make gpu-ssh GPU_HOST=ssh9.vast.ai GPU_PORT=12345
+GPU_HOST ?= ssh7.vast.ai
+GPU_PORT ?= 22141
+GPU_USER ?= root
 
 help:
 	@echo "Yoruba voice query pipeline — make targets"
@@ -26,6 +32,7 @@ help:
 	@echo "  make finetune-smoke  Quick LoRA training smoke test (~10 min on any GPU)"
 	@echo "  make finetune        Full LoRA fine-tune of whisper-large-v3 on Yoruba — CUDA only"
 	@echo "  make merge-lora      Merge LoRA adapter into a plain Whisper checkpoint for inference"
+	@echo "  make gpu-ssh         SSH into the rented Vast.ai GPU (override GPU_HOST/GPU_PORT per-instance)"
 	@echo ""
 	@echo "  make test           run all per-module tests"
 	@echo "  make test-m1..m5    run a single module test"
@@ -84,6 +91,9 @@ finetune:
 
 merge-lora:
 	$(PYTHON) -m scripts.merge_lora
+
+gpu-ssh:
+	ssh -p $(GPU_PORT) $(GPU_USER)@$(GPU_HOST) -L 8080:localhost:8080
 
 test: test-m1 test-m2 test-m3 test-m4 test-m5
 
