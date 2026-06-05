@@ -220,16 +220,27 @@ def main() -> None:
     model.config.suppress_tokens = []
     model.config.use_cache = False  # required when gradient_checkpointing=True
 
+    # No task_type — PEFT's SEQ_2_SEQ_LM template injects `input_ids`, which
+    # Whisper rejects (it takes `input_features`). Letting task_type default
+    # passes kwargs through unchanged.
     lora = LoraConfig(
         r=args.lora_r,
         lora_alpha=args.lora_alpha,
         target_modules=["q_proj", "v_proj"],
         lora_dropout=0.05,
         bias="none",
-        task_type="SEQ_2_SEQ_LM",
     )
     model = get_peft_model(model, lora)
     model.print_trainable_parameters()
+
+    # PEFT freezes the base; gradient checkpointing then has no input that
+    # requires grad, breaking the backward pass. This hook re-enables it.
+    if model.base_model.model.config.use_cache is False:
+        def make_inputs_require_grad(module, input, output):
+            output.requires_grad_(True)
+        model.base_model.model.model.encoder.conv1.register_forward_hook(
+            make_inputs_require_grad
+        )
 
     training_args = Seq2SeqTrainingArguments(
         output_dir=args.output_dir,
