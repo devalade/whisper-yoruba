@@ -14,8 +14,12 @@ M1_LANGUAGE = "yo"  # Yoruba
 M1_SAMPLE_RATE = 16000
 
 # M1 - alternate HF Whisper backend (Yoruba-fine-tuned). Selected with --asr hf.
-M1_HF_MODEL = "RafatK/Whisper_Largev2-Yoruba-Decodis_Comb_FT"
-M1_HF_PROCESSOR = "openai/whisper-large-v2"
+# Switched 2026-06-05 to our own fine-tune of whisper-large-v3 on Hidi-agili/yoruba_tts_dataset.
+# Prior baseline kept as a comment for reference / quick A/B:
+#   M1_HF_MODEL = "RafatK/Whisper_Largev2-Yoruba-Decodis_Comb_FT"
+#   M1_HF_PROCESSOR = "openai/whisper-large-v2"
+M1_HF_MODEL = "devalade/whisper-large-v3-yoruba"
+M1_HF_PROCESSOR = "openai/whisper-large-v3"
 M1_HF_CHUNK_S = 15
 M1_HF_NUM_BEAMS = 5
 M1_HF_MAX_NEW_TOKENS = 440
