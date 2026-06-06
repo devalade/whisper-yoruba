@@ -154,6 +154,8 @@ WAV (Yoruba)
 
 1. **M1 ASR quality:** Word Error Rate on FLEURS yo_ng validation, n=200 samples. Computed via `jiwer` after normalising both reference and hypothesis with diacritic stripping, lowercasing, and punctuation removal. Compared against (a) base `whisper-large-v3` and (b) `RafatK/Whisper_Largev2-Yoruba-Decodis_Comb_FT`.
 
+1a. **M1 conversational eval:** a hand-curated 25-phrase set covering greetings, identity, question words, numbers, and requests — recorded by the thesis author under deployment-like microphone conditions. Same normalization as the FLEURS metric. This complements FLEURS, which is studio-read news prose and does not surface short-utterance / conversational failures (see `docs/conversational-eval.md`).
+
 2. **End-to-end qualitative evaluation:** 10 hand-curated Yoruba audio queries are run through the full pipeline. Each example is recorded with: ASR transcript, diacritized form, English translation, retrieved passages, generated English answer, translated Yoruba answer, synthesized audio. A native Yoruba speaker (the thesis author) judges each on a 1–5 fluency/correctness scale.
 
 3. **Latency profile:** wall-clock time per stage on the author's Apple Silicon machine, reported as median of 5 runs per stage.

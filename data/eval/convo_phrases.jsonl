@@ -1,0 +1,25 @@
+{"id": "greet_01", "category": "greeting", "yo": "Ẹ káàárọ̀", "en": "Good morning"}
+{"id": "greet_02", "category": "greeting", "yo": "Ẹ kàásán", "en": "Good afternoon"}
+{"id": "greet_03", "category": "greeting", "yo": "Ẹ kú alẹ́", "en": "Good evening"}
+{"id": "greet_04", "category": "greeting", "yo": "Báwo ni?", "en": "How are you?"}
+{"id": "greet_05", "category": "greeting", "yo": "Mo wà dáadáa", "en": "I am fine"}
+{"id": "ident_01", "category": "identity", "yo": "Kíni orúkọ rẹ?", "en": "What is your name?"}
+{"id": "ident_02", "category": "identity", "yo": "Orúkọ mi ni Adé", "en": "My name is Ade"}
+{"id": "ident_03", "category": "identity", "yo": "Níbo ni o ti wá?", "en": "Where are you from?"}
+{"id": "ident_04", "category": "identity", "yo": "Mo wá láti Èkó", "en": "I am from Lagos"}
+{"id": "ident_05", "category": "identity", "yo": "Ọmọ ọdún mélòó ni ọ́?", "en": "How old are you?"}
+{"id": "qword_01", "category": "question_word", "yo": "Kíni èyí?", "en": "What is this?"}
+{"id": "qword_02", "category": "question_word", "yo": "Ta ni ẹni yẹn?", "en": "Who is that?"}
+{"id": "qword_03", "category": "question_word", "yo": "Níbo ni?", "en": "Where is it?"}
+{"id": "qword_04", "category": "question_word", "yo": "Ìgbà wo?", "en": "When?"}
+{"id": "qword_05", "category": "question_word", "yo": "Ẹ́lòó ni?", "en": "How much is it?"}
+{"id": "num_01", "category": "number", "yo": "Ọ̀kan", "en": "One"}
+{"id": "num_02", "category": "number", "yo": "Èjì", "en": "Two"}
+{"id": "num_03", "category": "number", "yo": "Ẹ̀ta", "en": "Three"}
+{"id": "num_04", "category": "number", "yo": "Ẹ̀rin", "en": "Four"}
+{"id": "num_05", "category": "number", "yo": "Àrún", "en": "Five"}
+{"id": "req_01", "category": "request", "yo": "Mo fẹ́ omi", "en": "I want water"}
+{"id": "req_02", "category": "request", "yo": "Jọ̀wọ́ ràn mí lọ́wọ́", "en": "Please help me"}
+{"id": "req_03", "category": "request", "yo": "Mo dúpẹ́", "en": "Thank you"}
+{"id": "req_04", "category": "request", "yo": "Ẹ jọ̀wọ́", "en": "Please / excuse me"}
+{"id": "req_05", "category": "request", "yo": "Mo nílò ìrànlọ́wọ́", "en": "I need help"}

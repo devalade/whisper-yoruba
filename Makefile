@@ -1,4 +1,4 @@
-.PHONY: help install index sample run talk chat talk-hf chat-hf wer wer-mlx wer-hf wer-ft finetune finetune-smoke merge-lora gpu-ssh test test-m1 test-m2 test-m3 test-m4 test-m5 test-chain clean-logs clean-outputs
+.PHONY: help install index sample run talk chat talk-hf chat-hf wer wer-mlx wer-hf wer-ft wer-convo wer-convo-mlx wer-convo-hf record-convo finetune finetune-smoke finetune-small test-holdout merge-lora gpu-ssh test test-m1 test-m2 test-m3 test-m4 test-m5 test-chain clean-logs clean-outputs
 
 PYTHON ?= $(HOME)/miniforge3/envs/yoruba/bin/python
 SAMPLE_WAV := data/audio/fleurs_yo_sample.wav
@@ -29,8 +29,14 @@ help:
 	@echo "  make wer-hf  [N=50]  WER eval of M1 HF backend on FLEURS yo_ng"
 	@echo "  make wer-ft  [N=200] WER eval after fine-tune (requires merged model + config.M1_HF_MODEL updated)"
 	@echo ""
+	@echo "  make record-convo    Record the conversational eval set via mic (skips already-done)"
+	@echo "  make wer-convo-hf    WER eval of M1 HF backend on conversational eval set"
+	@echo "  make wer-convo-mlx   WER eval of M1 mlx backend on conversational eval set"
+	@echo ""
 	@echo "  make finetune-smoke  Quick LoRA training smoke test (~10 min on any GPU)"
 	@echo "  make finetune        Full LoRA fine-tune of whisper-large-v3 on Yoruba — CUDA only"
+	@echo "  make finetune-small  800-sample run, 80/20 split, 2 audio held out for manual test"
+	@echo "  make test-holdout    Run M1 on the held-out WAVs (after scp'ing holdout/ from GPU box)"
 	@echo "  make merge-lora      Merge LoRA adapter into a plain Whisper checkpoint for inference"
 	@echo "  make gpu-ssh         SSH into the rented Vast.ai GPU (override GPU_HOST/GPU_PORT per-instance)"
 	@echo ""
@@ -79,6 +85,17 @@ wer-ft:
 
 wer: wer-mlx wer-hf
 
+record-convo:
+	$(PYTHON) -m scripts.record_convo
+
+wer-convo-hf:
+	$(PYTHON) -m scripts.eval_convo --asr hf  --out logs/wer_convo_hf.jsonl
+
+wer-convo-mlx:
+	$(PYTHON) -m scripts.eval_convo --asr mlx --out logs/wer_convo_mlx.jsonl
+
+wer-convo: wer-convo-mlx wer-convo-hf
+
 # --- fine-tuning (run on a CUDA box) ---
 EPOCHS ?= 3
 BATCH ?= 8
@@ -88,6 +105,21 @@ finetune-smoke:
 
 finetune:
 	$(PYTHON) -m scripts.finetune_whisper --epochs $(EPOCHS) --batch-size $(BATCH)
+
+# 800 total: 2 held out, 798 -> 80/20 train/eval (~638 train, ~160 eval).
+# Override with HOLDOUT_N / TOTAL / EVAL_FRAC on the command line.
+HOLDOUT_N ?= 2
+TOTAL ?= 800
+EVAL_FRAC ?= 0.2
+
+finetune-small:
+	$(PYTHON) -m scripts.finetune_whisper \
+		--epochs $(EPOCHS) --batch-size $(BATCH) \
+		--total-samples $(TOTAL) --eval-frac $(EVAL_FRAC) \
+		--holdout-n $(HOLDOUT_N)
+
+test-holdout:
+	$(PYTHON) -m scripts.test_holdout --asr hf
 
 merge-lora:
 	$(PYTHON) -m scripts.merge_lora

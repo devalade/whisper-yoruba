@@ -19,6 +19,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +28,8 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import jiwer
+import numpy as np
+import soundfile as sf
 import torch
 from datasets import Audio, DatasetDict, concatenate_datasets, load_dataset
 from peft import LoraConfig, get_peft_model
@@ -81,6 +84,37 @@ def load_corpus(dataset_ids: list[str]) -> "datasets.Dataset":
     combined = parts[0] if len(parts) == 1 else concatenate_datasets(parts)
     log.info("combined corpus: %d rows", len(combined))
     return combined
+
+
+def extract_holdout(corpus, n: int, out_dir: Path, seed: int) -> "datasets.Dataset":
+    """Pop `n` raw samples from `corpus`, save them as WAV + manifest, return the rest.
+
+    Runs before feature prep so we have the original audio array (not mel
+    features) on disk. The same seed produces the same holdout — switching
+    seeds across runs is fine, but reusing a seed means reusing samples.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    shuffled = corpus.shuffle(seed=seed)
+    holdout = shuffled.select(range(n))
+    rest = shuffled.select(range(n, len(shuffled)))
+
+    sr = config.M1_SAMPLE_RATE
+    manifest_path = out_dir / "manifest.jsonl"
+    with manifest_path.open("w", encoding="utf-8") as mf:
+        for i, row in enumerate(holdout):
+            wav_path = out_dir / f"holdout_{i:02d}.wav"
+            arr = np.asarray(row["audio"]["array"], dtype=np.float32)
+            sf.write(wav_path, arr, sr, subtype="PCM_16")
+            mf.write(json.dumps({
+                "id": f"holdout_{i:02d}",
+                "wav": str(wav_path.relative_to(config.ROOT)),
+                "yo": row["text"],
+                "duration_s": round(len(arr) / sr, 2),
+            }, ensure_ascii=False) + "\n")
+            log.info("holdout %d: %s (%.2fs)  ref=%r",
+                     i, wav_path.name, len(arr) / sr, row["text"])
+    log.info("wrote %d holdout samples + manifest to %s", n, out_dir)
+    return rest
 
 
 def build_prepare_fn(processor: WhisperProcessor):
@@ -171,6 +205,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-train-samples", type=int, default=None,
                    help="Cap training rows — use for fast smoke tests")
     p.add_argument("--max-eval-samples", type=int, default=None)
+    p.add_argument("--total-samples", type=int, default=None,
+                   help="Cap the raw corpus to N rows BEFORE the train/eval split "
+                        "(deterministic shuffle by --seed). Use for a small targeted run.")
+    p.add_argument("--holdout-n", type=int, default=0,
+                   help="Pop N raw audio samples before training, save as WAV + "
+                        "manifest under --holdout-dir. These are excluded from train+eval.")
+    p.add_argument("--holdout-dir", default=str(config.AUDIO_DIR / "holdout"),
+                   help="Where to write the held-out WAVs + manifest.jsonl")
+    p.add_argument("--seed", type=int, default=42,
+                   help="Shuffle seed for holdout extraction + train/test split")
     p.add_argument("--num-workers", type=int, default=4)
     p.add_argument("--push-to-hub", action="store_true")
     p.add_argument("--hub-model-id", default=None)
@@ -192,6 +236,21 @@ def main() -> None:
     )
 
     corpus = load_corpus(args.datasets)
+
+    # 1) Hold out raw audio FIRST — we want the original arrays on disk,
+    #    not the mel features. The same seed is reused for the train/test
+    #    split below so holdout, train, eval are all deterministic.
+    if args.holdout_n > 0:
+        corpus = extract_holdout(
+            corpus, args.holdout_n, Path(args.holdout_dir), seed=args.seed,
+        )
+
+    # 2) Cap the corpus before feature prep — saves wall-time on small runs.
+    if args.total_samples:
+        capped = min(args.total_samples, len(corpus))
+        corpus = corpus.shuffle(seed=args.seed).select(range(capped))
+        log.info("capped corpus to %d rows (--total-samples)", capped)
+
     prepare = build_prepare_fn(processor)
     log.info("preparing features (this materializes mel spectrograms)…")
     corpus = corpus.map(
@@ -204,7 +263,7 @@ def main() -> None:
     corpus = corpus.filter(lambda r: r["input_features"] is not None)
     log.info("kept %d/%d rows after length/empty-text filter", len(corpus), before)
 
-    split = corpus.train_test_split(test_size=args.eval_frac, seed=42)
+    split = corpus.train_test_split(test_size=args.eval_frac, seed=args.seed)
     if args.max_train_samples:
         split["train"] = split["train"].select(range(min(args.max_train_samples, len(split["train"]))))
     if args.max_eval_samples:
