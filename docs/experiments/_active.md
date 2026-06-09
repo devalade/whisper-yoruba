@@ -6,41 +6,55 @@ This file is the scratchpad for the trial currently in flight. It's intentionall
 
 ---
 
-## Trial: 5-epoch ft (test the more-epochs hypothesis directly)
+## Trial: data-mix expansion (test the diversity hypothesis directly)
 
-**Started:** _not yet — waiting on FLEURS A/B between v1 and v2 to decide whether to launch_
-**Hypothesis:** Loss + eval WER were still monotone-decreasing at the final epoch of the 2026-06-09 3-epoch run (eval loss 1.747 → 0.951 → 0.885; eval WER 73.0% → 51.7% → 49.2%). Training to 5+ epochs should produce a further drop without catastrophic overfit on this single-speaker corpus.
+**Started:** _not yet — drafting plan_
+**Motivation:** The 2026-06-09 v2 ft showed a **−23.8 pt** drop on the Hidi-agili held-out split (73.0% → 49.2%) but only a **−0.5 pt** drop on FLEURS yo_ng vs v1 (66.1% → 65.6%). That gap is the classic single-speaker overfit signature: the model is fitting one TTS voice tightly while barely generalizing to real multi-speaker audio. Pushing more epochs on the same corpus won't move FLEURS — it'll widen the train/eval gap further. The 5-epoch hypothesis is therefore parked. The next training axis is **data diversity**.
+
+**Hypothesis:** Adding FLEURS yo_ng train (~2.5k multi-speaker) and Common Voice yo (~few k crowd-sourced) to the training mix will reduce FLEURS WER by **≥5 absolute points** vs v2 (target ≤60% on FLEURS n=200 / beams=5), even at the same 3 epochs.
+
 **Success criterion:**
-- Beat v2's conversational eval (especially the `identity` bucket) by ≥3 absolute WER points.
-- Do not regress FLEURS yo_ng WER vs v2 by more than ~1 absolute point.
-- Eval WER continues to drop epoch 3→4→5, or plateaus (not increases).
-**Cost cap:** ~$5 / ~4 h wall time. If WER plateaus by epoch 4, stop early via `make finetune EPOCHS=4` next time.
+- FLEURS yo_ng WER ≤ 60% at N=200 / beams=5 (vs v2's 65.6% at N=25 greedy — need full-grade rerun of v2 at the same setting for clean comparison).
+- Do not regress the Hidi-agili held-out eval by more than 5 points (51.7% → ≤56.7%); a small regression is expected as the model spreads its capacity across more distributions.
+- Convo eval, when recorded, shows improvement on the `identity` bucket (the bucket motivating the whole thesis chapter).
+
+**Cost cap:** ~$8 / ~6 h wall time. Larger budget than v2 because the dataset is bigger (~15k rows vs 9.5k).
+
+### Open design decisions (resolve before launch)
+
+| Decision | Options | Default |
+|---|---|---|
+| Starting checkpoint | (a) `openai/whisper-large-v3` cold-start (b) `devalade/whisper-large-v3-yoruba-v2` warm-start | (b) warm-start — v2 already gives a 23-pt head start over base on FLEURS, and we save one fine-tune of compute. Risk: single-speaker bias persists. |
+| Data mix ratio | Hidi-agili : FLEURS train : Common Voice yo | Default 1:1:1 by row count, capped to ~5k rows each. Random shuffle across the union. |
+| Epochs | 3 / 5 | **3** — match v2 first to isolate the data axis as a clean ablation. |
+| LoRA r / target modules | r=32 q+v / r=64 q+v / r=32 q+k+v+o | **r=32 q+v** (same as v2) to isolate the data axis. |
+| LR + schedule | 1e-5 constant (as v2) / 1e-5 cosine | **1e-5 constant** (same as v2). |
+| Target HF repo | `devalade/whisper-large-v3-yoruba-v3` | Do **not** overwrite v1 or v2. |
+
+All defaults above are picked to **vary only the data axis** vs v2 — that's the ablation that goes in the thesis. Later trials can vary epochs, LR schedule, LoRA shape on top of the winning data mix.
 
 ### Pre-launch gates (do these first)
 
-- [ ] Pull artifacts from the 2026-06-09 run to `models/whisper-yo-lora-run-2026-06-09/`.
-- [ ] Destroy the current Vast instance (40222150) to stop billing.
-- [ ] Set `config.M1_HF_MODEL = "devalade/whisper-large-v3-yoruba-v2"` *temporarily*.
-- [ ] `make wer-hf N=200` → record FLEURS yo_ng WER for v2 in `2026-06-09-3epoch-v2.md`.
-- [ ] Re-record / refresh `data/audio/eval_convo/` if it doesn't exist.
-- [ ] `make wer-convo-hf` → record convo WER for v2 in `2026-06-09-3epoch-v2.md`.
-- [ ] Repeat both against `M1_HF_MODEL = "devalade/whisper-large-v3-yoruba"` (v1) to populate the comparison rows.
-- [ ] Decide based on results: launch 5-epoch trial, or pivot to data-mix hypothesis instead.
+- [ ] Verify FLEURS yo_ng train split loads end-to-end and has reasonable text/audio quality. Sample 10 rows.
+- [ ] Verify Common Voice yo is accessible on HF (`mozilla-foundation/common_voice_*` — confirm which version has Yoruba). Sample 10 rows.
+- [ ] Add the new datasets to `config.FT_DATASETS` and wire up the loader in `scripts/finetune_whisper.py` to concatenate + shuffle. May need a small adapter for column-schema mismatches across the three sources.
+- [ ] Re-run FLEURS A/B for v1 and v2 at **N=200 / beams=5** so the v3 comparison has a thesis-grade baseline (not the N=25 / greedy first-pass numbers). Cost: ~3 h locally on MPS — better to run on the same Vast box right before training. Or fold it into the Vast session and run on GPU (~15 min).
+- [ ] If recording `data/audio/eval_convo/` is feasible before launch, do it. The convo eval is a stronger thesis signal than FLEURS alone.
 
 ### Setup (when launched)
 
 | | |
 |---|---|
-| Base model | `openai/whisper-large-v3` |
-| Adapter | LoRA r=32, α=64, target q_proj+v_proj, dropout 0.05 |
-| Dataset | `Hidi-agili/yoruba_tts_dataset` (9,499 rows) |
-| Epochs | **5** (vs 3 in v2) |
-| Batch size | 12 per device, grad accum 2 |
-| Learning rate | 1e-5 (warmup 50 steps) |
+| Starting checkpoint | _pending decision_ — see above |
+| Adapter | LoRA r=32, α=64, target q_proj+v_proj, dropout 0.05 (same as v2) |
+| Datasets | `Hidi-agili/yoruba_tts_dataset` + FLEURS yo_ng train + Common Voice yo (~15k rows total) |
+| Epochs | 3 |
+| Batch size | 12 per device, grad accum 2 (effective batch 24) |
+| Learning rate | 1e-5 constant, warmup 50 steps |
 | Precision | bf16 |
 | Gradient checkpointing | yes (use_reentrant=False) |
 | GPU | 1× RTX 5090 32 GB on Vast.ai |
-| Target HF repo | `devalade/whisper-large-v3-yoruba-v3` (do **not** overwrite v1 or v2) |
+| Target HF repo | `devalade/whisper-large-v3-yoruba-v3` |
 
 ### Log
 
@@ -49,9 +63,7 @@ _(empty — fill once launched)_
 ### Commands actually run
 
 ```bash
-# When ready:
 # (Vast: rent new box, vastai/base-image:cuda-12.8.1-auto, 1× RTX 5090)
-
 make gpu-ssh GPU_HOST=... GPU_PORT=...
 
 # On the box:
@@ -66,11 +78,14 @@ python -c "import torch; print(torch.__version__, 'cuda?', torch.cuda.is_availab
 #   pip install --pre torch torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
 
 huggingface-cli login
-export PYTHON=python
-make finetune-smoke    # ~10 min sanity
 
+# Thesis-grade v1/v2 baselines first (~15 min on GPU):
+make wer-hf N=200 M1_HF_MODEL=devalade/whisper-large-v3-yoruba
+make wer-hf N=200 M1_HF_MODEL=devalade/whisper-large-v3-yoruba-v2
+
+# Then training:
 tmux new -s ft
-make finetune EPOCHS=5 BATCH=12
+make finetune EPOCHS=3 BATCH=12
 # Ctrl-B D. nvidia-smi -l 5 in a second ssh — expect ~24-28 GB VRAM, 95%+ util.
 
 # After it finishes — capture metrics first:
@@ -82,18 +97,20 @@ python -m scripts.merge_lora --push-to-hub --hub-model-id devalade/whisper-large
 
 ### Evaluation (once v3 is on HF)
 
-| Eval | v1 | v2 (current ft) | **v3 (this trial, 5 epochs)** | Δ vs v2 |
-|---|---|---|---|---|
-| FLEURS yo_ng WER (n=200) | _from prereqs_ | _from prereqs_ | _new_ | |
-| Convo overall WER | _from prereqs_ | _from prereqs_ | _new_ | |
-| Convo `identity` WER | _from prereqs_ | _from prereqs_ | _new_ | |
-| Convo `greeting` WER | _from prereqs_ | _from prereqs_ | _new_ | |
+All numbers at **N=200 / beams=5** for thesis-grade comparison.
+
+| Eval | base | v1 | v2 | **v3 (this trial, data-mix)** | Δ vs v2 |
+|---|---|---|---|---|---|
+| FLEURS yo_ng WER | _N=200 baseline_ | _N=200 baseline_ | _N=200 baseline_ | _new_ | |
+| Hidi-agili held-out WER | — | _from prior runs_ | 49.2% | _new_ | |
+| Convo overall WER | — | _from prereqs_ | _from prereqs_ | _new_ | |
+| Convo `identity` WER | — | _from prereqs_ | _from prereqs_ | _new_ | |
 
 ### Next decision
 
-- ✅ Beats v2 on convo without FLEURS regression → ship as M1 backend, promote to `YYYY-MM-DD-5epoch-ft.md`, flip `config.M1_HF_MODEL` to v3.
-- ⚠️ Beats v2 on the eval split but not on FLEURS/convo → "training-split overfit" — promote as ⚠️, pivot to data-mix hypothesis (add FLEURS train or Common Voice yo).
-- ❌ Worse than v2 → epochs were the wrong knob. Promote as ❌, keep v2 as backend.
+- ✅ FLEURS drops ≥5 pts without major Hidi-agili regression → ship as M1 backend, promote to `YYYY-MM-DD-data-mix-v3.md`, flip `config.M1_HF_MODEL` to v3. Next trial = combine data-mix + more epochs.
+- ⚠️ FLEURS improves but Hidi-agili regresses badly → "catastrophic forgetting on TTS voice" — promote as ⚠️, try re-balancing the mix (more Hidi-agili weight).
+- ❌ FLEURS doesn't move → data wasn't the bottleneck either. Promote as ❌, look at LoRA capacity (r=64, more target modules) or full-fine-tune.
 
 ---
 
