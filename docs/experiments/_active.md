@@ -6,115 +6,94 @@ This file is the scratchpad for the trial currently in flight. It's intentionall
 
 ---
 
-## Trial: more-epochs full run
+## Trial: 5-epoch ft (test the more-epochs hypothesis directly)
 
-**Started:** 2026-06-09
-**Hypothesis:** 3 epochs on 9,499 single-speaker clips under-fit. Training longer (5+ epochs) will reduce word-boundary errors on short conversational inputs without overfitting catastrophically — the dataset is small but homogeneous, so the risk of memorising it is real but tractable.
+**Started:** _not yet — waiting on FLEURS A/B between v1 and v2 to decide whether to launch_
+**Hypothesis:** Loss + eval WER were still monotone-decreasing at the final epoch of the 2026-06-09 3-epoch run (eval loss 1.747 → 0.951 → 0.885; eval WER 73.0% → 51.7% → 49.2%). Training to 5+ epochs should produce a further drop without catastrophic overfit on this single-speaker corpus.
 **Success criterion:**
-- Beat `devalade/whisper-large-v3-yoruba` (current 3-epoch ft) on the conversational eval set, **especially the `identity` bucket** — that's the bucket containing the `Kíni orúkọ rẹ?` failure.
-- Do not regress FLEURS yo_ng WER by more than ~1 absolute point vs the current ft.
-- Qualitative: the held-out audio clips transcribe with correct word boundaries.
-**Cost cap:** ~$5 / ~4 h wall time. If the run isn't producing a checkpoint in that envelope, stop and re-plan.
+- Beat v2's conversational eval (especially the `identity` bucket) by ≥3 absolute WER points.
+- Do not regress FLEURS yo_ng WER vs v2 by more than ~1 absolute point.
+- Eval WER continues to drop epoch 3→4→5, or plateaus (not increases).
+**Cost cap:** ~$5 / ~4 h wall time. If WER plateaus by epoch 4, stop early via `make finetune EPOCHS=4` next time.
 
-> ⚠️ **Note on loop choice:** going straight to a full run skips the small-run sanity check that `2026-06-06-small-run-holdout.md` was built for. Justification: the hypothesis is a single-axis change (epochs), not a recipe change, and a small-run with only 800 samples may not exercise enough data per epoch to be informative about over/under-fit. If this feels wrong before launching, run `make finetune-small EPOCHS=5` first and decide based on the held-out clips.
+### Pre-launch gates (do these first)
 
-### Setup (as run, not as planned)
+- [ ] Pull artifacts from the 2026-06-09 run to `models/whisper-yo-lora-run-2026-06-09/`.
+- [ ] Destroy the current Vast instance (40222150) to stop billing.
+- [ ] Set `config.M1_HF_MODEL = "devalade/whisper-large-v3-yoruba-v2"` *temporarily*.
+- [ ] `make wer-hf N=200` → record FLEURS yo_ng WER for v2 in `2026-06-09-3epoch-v2.md`.
+- [ ] Re-record / refresh `data/audio/eval_convo/` if it doesn't exist.
+- [ ] `make wer-convo-hf` → record convo WER for v2 in `2026-06-09-3epoch-v2.md`.
+- [ ] Repeat both against `M1_HF_MODEL = "devalade/whisper-large-v3-yoruba"` (v1) to populate the comparison rows.
+- [ ] Decide based on results: launch 5-epoch trial, or pivot to data-mix hypothesis instead.
+
+### Setup (when launched)
 
 | | |
 |---|---|
 | Base model | `openai/whisper-large-v3` |
 | Adapter | LoRA r=32, α=64, target q_proj+v_proj, dropout 0.05 |
 | Dataset | `Hidi-agili/yoruba_tts_dataset` (9,499 rows) |
-| Epochs | **5** (vs 3 baseline) — _adjust here if you pick differently_ |
+| Epochs | **5** (vs 3 in v2) |
 | Batch size | 12 per device, grad accum 2 |
 | Learning rate | 1e-5 (warmup 50 steps) |
 | Precision | bf16 |
 | Gradient checkpointing | yes (use_reentrant=False) |
 | GPU | 1× RTX 5090 32 GB on Vast.ai |
-| Branch / commit | _fill in when you launch_ |
-| Target HF repo | `devalade/whisper-large-v3-yoruba-v2` (do **not** overwrite the current baseline) |
+| Target HF repo | `devalade/whisper-large-v3-yoruba-v3` (do **not** overwrite v1 or v2) |
 
 ### Log
 
-- **YYYY-MM-DD HH:MM** — rented Vast instance, port _____, ssh ok.
-- **HH:MM** — `pip install`, `huggingface-cli login`, `export PYTHON=python` done.
-- **HH:MM** — `make finetune-smoke` passed / failed (_note_).
-- **HH:MM** — launched `make finetune EPOCHS=5 BATCH=12` in tmux.
-- **HH:MM** — epoch 1 done, train loss _____, eval WER _____.
-- **HH:MM** — epoch 2 done, _____.
-- ...
+_(empty — fill once launched)_
 
 ### Commands actually run
 
 ```bash
-# Local Mac — find a box:
-# (Vast UI: vastai/base-image:cuda-12.8.1-auto, 1× RTX 5090, ≥60 GB)
+# When ready:
+# (Vast: rent new box, vastai/base-image:cuda-12.8.1-auto, 1× RTX 5090)
 
-# Local Mac — ssh in:
-make gpu-ssh GPU_HOST=ssh?.vast.ai GPU_PORT=????
+make gpu-ssh GPU_HOST=... GPU_PORT=...
 
 # On the box:
 git clone https://github.com/devalade/whisper-yoruba.git
 cd whisper-yoruba
 pip install -r requirements.txt
+
+# CRITICAL — verify CUDA torch BEFORE training (the trap that bit v2):
+python -c "import torch; print(torch.__version__, 'cuda?', torch.cuda.is_available(), torch.cuda.get_device_capability() if torch.cuda.is_available() else None)"
+# If cuda? False → reinstall:
+#   pip uninstall -y torch torchaudio
+#   pip install --pre torch torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
+
 huggingface-cli login
 export PYTHON=python
+make finetune-smoke    # ~10 min sanity
 
-# Sanity:
-make finetune-smoke
-
-# The actual run (5 epochs instead of 3):
 tmux new -s ft
 make finetune EPOCHS=5 BATCH=12
-# Ctrl-B D to detach. `tmux a -t ft` to reattach. Watch nvidia-smi in a second ssh.
+# Ctrl-B D. nvidia-smi -l 5 in a second ssh — expect ~24-28 GB VRAM, 95%+ util.
 
-# After it finishes — capture the numbers BEFORE cleanup:
-cat models/whisper-yo-lora/trainer_state.json | python -m json.tool | head -200 > /tmp/trainer_state.txt
-python -c "import pickle; print(pickle.load(open('models/whisper-yo-lora/training_args.bin','rb')))" > /tmp/training_args.txt
-# scp /tmp/trainer_state.txt and /tmp/training_args.txt back to Mac.
+# After it finishes — capture metrics first:
+python -c "import torch; print(torch.load('models/whisper-yo-lora/training_args.bin', weights_only=False))" > models/whisper-yo-lora/training_args.txt
 
-# Merge + push under a -v2 ID so the current baseline survives:
-python -m scripts.merge_lora --push-to-hub \
-    --hub-model-id devalade/whisper-large-v3-yoruba-v2
+# Merge + push under -v3:
+python -m scripts.merge_lora --push-to-hub --hub-model-id devalade/whisper-large-v3-yoruba-v3
 ```
 
-### Observations
+### Evaluation (once v3 is on HF)
 
-_Fill in as you go. Use this for anything that surprised you — train loss curve shape, eval WER trajectory, VRAM behavior, etc._
-
-### Errors / blockers
-
-- 
-
-### Evaluation (once the model is on HF)
-
-On local Mac, temporarily flip `config.M1_HF_MODEL` to `devalade/whisper-large-v3-yoruba-v2`, then:
-
-```bash
-# FLEURS yo_ng — compare against the v1 baseline
-make wer-hf N=200
-
-# Conversational eval — the bucket that motivated this trial
-make wer-convo-hf
-
-# Held-out audio clips (if you used the small-run path)
-make test-holdout
-```
-
-Record:
-
-| Eval | v1 (`devalade/whisper-large-v3-yoruba`) | **v2 (this run, 5 epochs)** | Delta |
-|---|---|---|---|
-| FLEURS yo_ng WER (n=200) | _v1 number_ | _v2 number_ | |
-| Convo overall WER | _v1_ | _v2_ | |
-| Convo `identity` WER | _v1_ | _v2_ | |
-| Convo `greeting` WER | _v1_ | _v2_ | |
+| Eval | v1 | v2 (current ft) | **v3 (this trial, 5 epochs)** | Δ vs v2 |
+|---|---|---|---|---|
+| FLEURS yo_ng WER (n=200) | _from prereqs_ | _from prereqs_ | _new_ | |
+| Convo overall WER | _from prereqs_ | _from prereqs_ | _new_ | |
+| Convo `identity` WER | _from prereqs_ | _from prereqs_ | _new_ | |
+| Convo `greeting` WER | _from prereqs_ | _from prereqs_ | _new_ | |
 
 ### Next decision
 
-- If v2 beats v1 on convo without regressing FLEURS → ship v2, update `config.M1_HF_MODEL`, promote this file to `YYYY-MM-DD-more-epochs-ft.md`, mark ✅ shipped.
-- If v2 ties FLEURS but doesn't move convo → epochs weren't the bottleneck. Promote as ⚠️, write up "5 epochs ≈ 3 epochs on this dataset" as a negative result, and pivot to the data-mix hypothesis (adding FLEURS train / Common Voice).
-- If v2 regresses → promote as ❌, note over-fit signature (train loss ↓↓ while eval WER ↑), keep v1 as M1 backend.
+- ✅ Beats v2 on convo without FLEURS regression → ship as M1 backend, promote to `YYYY-MM-DD-5epoch-ft.md`, flip `config.M1_HF_MODEL` to v3.
+- ⚠️ Beats v2 on the eval split but not on FLEURS/convo → "training-split overfit" — promote as ⚠️, pivot to data-mix hypothesis (add FLEURS train or Common Voice yo).
+- ❌ Worse than v2 → epochs were the wrong knob. Promote as ❌, keep v2 as backend.
 
 ---
 

@@ -11,8 +11,9 @@ Most recent first. `WER` columns are FLEURS yo_ng (n=200) unless noted; `—` me
 | Date | Trial | Status | Base WER | Run WER | Notes |
 |---|---|---|---|---|---|
 | _live_ | [`_active.md`](_active.md) | 🟡 in flight | — | — | Working notes for the trial currently in progress. Promoted to a dated file on completion. |
+| 2026-06-09 | [3-epoch ft, BATCH=12, bf16 verified → v2](2026-06-09-3epoch-v2.md) | ✅ shipped | TBD | 49.2% (on `Hidi-agili` eval split, *not* FLEURS) | Pushed as `devalade/whisper-large-v3-yoruba-v2`. Loss + WER monotone-dropping at epoch 3 → motivates 5-epoch follow-up. `M1_HF_MODEL` not yet flipped pending FLEURS A/B. |
 | 2026-06-06 | [small-run loop + convo eval set](2026-06-06-small-run-holdout.md) | ⚠️ tooling | — | — | Infrastructure for faster trials; no checkpoint produced. |
-| 2026-06-05 | [first full ft: `devalade/whisper-large-v3-yoruba`](2026-06-05-large-v3-yoruba-ft.md) | ✅ shipped | TBD | TBD | Replaced Rafat baseline as M1's HF backend. |
+| 2026-06-05 | [first full ft: `devalade/whisper-large-v3-yoruba`](2026-06-05-large-v3-yoruba-ft.md) | ✅ shipped | TBD | TBD | Replaced Rafat baseline as M1's HF backend (v1). |
 | 2026-06-05 | [pipeline-validation smoke test](2026-06-05-smoke-test.md) | ✅ pipeline ok | — | 88.4% (meaningless) | 50 samples / 1 epoch. Value was catching 5 env bugs. |
 
 ### Status legend
