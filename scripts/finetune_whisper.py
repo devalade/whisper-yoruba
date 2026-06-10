@@ -27,22 +27,15 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import jiwer
 import numpy as np
 import soundfile as sf
-import torch
 from datasets import Audio, DatasetDict, concatenate_datasets, load_dataset
-from peft import LoraConfig, get_peft_model
-from transformers import (
-    Seq2SeqTrainer,
-    Seq2SeqTrainingArguments,
-    WhisperForConditionalGeneration,
-    WhisperProcessor,
-)
 
 import config
-from scripts.eval_wer import normalize
 from utils.logging import get_logger
+
+# Heavy CUDA-side deps (torch, peft, transformers, jiwer) are imported lazily
+# inside main() so `--print-mix` works on a laptop without the training stack.
 
 log = get_logger("finetune")
 
@@ -58,7 +51,7 @@ def _audio_column_name(ds) -> str:
 
 
 def _text_column_name(ds) -> str:
-    for cand in ("text", "transcription", "sentence"):
+    for cand in ("text", "transcription", "sentence", "raw_transcription"):
         if cand in ds.column_names:
             return cand
     raise ValueError(f"no text column in {ds.column_names}")
@@ -84,6 +77,102 @@ def load_corpus(dataset_ids: list[str]) -> "datasets.Dataset":
     combined = parts[0] if len(parts) == 1 else concatenate_datasets(parts)
     log.info("combined corpus: %d rows", len(combined))
     return combined
+
+
+def load_corpus_mix(mix: list[dict], seed: int) -> "datasets.Dataset":
+    """Load each source in the mix spec, cap rows per source, then concatenate.
+
+    Each spec entry is the shape documented in `config.FT_DATA_MIX`. Per-source
+    `max_rows` is applied AFTER a deterministic shuffle so the subselection is
+    reproducible across runs with the same seed.
+    """
+    parts = []
+    for spec in mix:
+        tag = spec.get("tag") or spec["repo"]
+        kwargs = {"split": spec.get("split", "train")}
+        if "config" in spec and spec["config"]:
+            kwargs["name"] = spec["config"]
+        if "data_files" in spec and spec["data_files"]:
+            kwargs["data_files"] = spec["data_files"]
+        log.info("loading %s (%s) — %s", tag, spec["repo"], kwargs)
+        ds = load_dataset(spec["repo"], **kwargs)
+        audio_col = _audio_column_name(ds)
+        text_col = spec.get("text_column") or _text_column_name(ds)
+        if text_col not in ds.column_names:
+            raise ValueError(
+                f"{tag}: requested text_column={text_col!r} not in {ds.column_names}"
+            )
+        keep = [audio_col, text_col]
+        ds = ds.remove_columns([c for c in ds.column_names if c not in keep])
+        if audio_col != "audio":
+            ds = ds.rename_column(audio_col, "audio")
+        if text_col != "text":
+            ds = ds.rename_column(text_col, "text")
+        ds = ds.cast_column("audio", Audio(sampling_rate=config.M1_SAMPLE_RATE))
+        cap = spec.get("max_rows")
+        if cap is not None and cap < len(ds):
+            ds = ds.shuffle(seed=seed).select(range(cap))
+        log.info("  %s: %d rows (cap=%s)", tag, len(ds), cap)
+        parts.append(ds)
+    combined = parts[0] if len(parts) == 1 else concatenate_datasets(parts)
+    combined = combined.shuffle(seed=seed)
+    log.info("combined corpus: %d rows across %d sources", len(combined), len(parts))
+    return combined
+
+
+def print_mix_dry_run(mix: list[dict]) -> None:
+    """Resolve each source via remote parquet footer reads — no full downloads.
+
+    Uses HfFileSystem so pyarrow only fetches the parquet footer (KB, not GB)
+    per file. Datasets without parquet files in the repo tree (FLEURS uses a
+    script-based loader) are reported as "n/a" — they'll resolve at training
+    time, just not here.
+    """
+    from huggingface_hub import HfApi, HfFileSystem
+    import fnmatch
+    import pyarrow.parquet as pq
+
+    api = HfApi()
+    fs = HfFileSystem()
+    total_after_cap = 0
+    print(f"\n{'Source tag':<24}  {'Repo':<40}  {'Files':<6}  {'Rows':>10}  {'Cap':>6}  {'Used':>10}")
+    print("-" * 110)
+    for spec in mix:
+        tag = spec.get("tag") or spec["repo"]
+        repo = spec["repo"]
+        cap = spec.get("max_rows")
+        try:
+            all_files = api.list_repo_files(repo, repo_type="dataset")
+        except Exception as e:
+            print(f"{tag:<24}  {repo:<40}  ERROR: {e}")
+            continue
+        glob = spec.get("data_files")
+        if glob:
+            matched = [f for f in all_files if fnmatch.fnmatch(f, glob)]
+        else:
+            matched = [f for f in all_files if f.endswith(".parquet")]
+        rows = 0
+        readable = True
+        for f in matched:
+            try:
+                with fs.open(f"datasets/{repo}/{f}", "rb") as fh:
+                    rows += pq.ParquetFile(fh).metadata.num_rows
+            except Exception:
+                readable = False
+                break
+        if not matched:
+            rows_disp, used_disp = "n/a", str(cap) if cap else "all"
+            if cap:
+                total_after_cap += cap
+        elif not readable:
+            rows_disp, used_disp = "err", "?"
+        else:
+            used = min(rows, cap) if cap is not None else rows
+            total_after_cap += used
+            rows_disp, used_disp = str(rows), str(used)
+        print(f"{tag:<24}  {repo:<40}  {len(matched):<6}  {rows_disp:>10}  {str(cap):>6}  {used_disp:>10}")
+    print("-" * 110)
+    print(f"Estimated total rows after caps: {total_after_cap}")
 
 
 def extract_holdout(corpus, n: int, out_dir: Path, seed: int) -> "datasets.Dataset":
@@ -167,6 +256,9 @@ class DataCollatorSpeechSeq2SeqWithPadding:
 # ---- metric -------------------------------------------------------------
 
 def build_compute_metrics(processor: WhisperProcessor):
+    import jiwer
+    from scripts.eval_wer import normalize
+
     pad_id = processor.tokenizer.pad_token_id
 
     def compute_metrics(pred) -> dict[str, float]:
@@ -191,8 +283,13 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--base-model", default=config.FT_BASE_MODEL)
     p.add_argument("--output-dir", default=str(config.FT_OUTPUT_DIR))
-    p.add_argument("--datasets", nargs="+", default=config.FT_DATASETS,
-                   help="HF dataset IDs with (audio, text) columns")
+    p.add_argument("--datasets", nargs="+", default=None,
+                   help="Legacy: HF dataset IDs with (audio, text) columns. "
+                        "If unset, uses the structured config.FT_DATA_MIX.")
+    p.add_argument("--print-mix", action="store_true",
+                   help="Resolve each source in FT_DATA_MIX via HF parquet "
+                        "metadata, print row counts, then exit. Use to sanity-"
+                        "check the mix before launching the real run.")
     p.add_argument("--language", default=config.M1_LANGUAGE)
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--batch-size", type=int, default=8)
@@ -224,6 +321,23 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
+    if args.print_mix:
+        print_mix_dry_run(config.FT_DATA_MIX)
+        return
+
+    # Heavy training deps — imported here so --print-mix works without them.
+    global torch, get_peft_model, LoraConfig
+    global Seq2SeqTrainer, Seq2SeqTrainingArguments
+    global WhisperForConditionalGeneration, WhisperProcessor
+    import torch
+    from peft import LoraConfig, get_peft_model
+    from transformers import (
+        Seq2SeqTrainer,
+        Seq2SeqTrainingArguments,
+        WhisperForConditionalGeneration,
+        WhisperProcessor,
+    )
+
     if not torch.cuda.is_available():
         log.warning(
             "CUDA not available — large-v3 LoRA training will be unusably slow. "
@@ -235,7 +349,10 @@ def main() -> None:
         args.base_model, language=args.language, task="transcribe"
     )
 
-    corpus = load_corpus(args.datasets)
+    if args.datasets:
+        corpus = load_corpus(args.datasets)
+    else:
+        corpus = load_corpus_mix(config.FT_DATA_MIX, seed=args.seed)
 
     # 1) Hold out raw audio FIRST — we want the original arrays on disk,
     #    not the mel features. The same seed is reused for the train/test

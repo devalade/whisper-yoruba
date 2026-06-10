@@ -5,6 +5,7 @@ models/
 data/audio/
 data/wikipedia/
 data/outputs/
+data/inspect/
 
 # Local runtime artifacts
 logs/
