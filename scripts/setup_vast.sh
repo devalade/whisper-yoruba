@@ -29,9 +29,75 @@ python --version
 which python
 
 # ---------------------------------------------------------------------------
-# 1. System packages we rely on (tmux for detached training, git for the repo)
+# 1. Pin HF caches to the biggest writable volume — BEFORE anything downloads.
+#    Vast root overlays are often only 30-64 GB, but a provisioned /workspace
+#    volume is usually much larger. The 2026-06-10 v3 trial filled a 64 GB
+#    root partition on the first attempt; this step is the fix.
 # ---------------------------------------------------------------------------
-banner "1. System packages"
+banner "1. HF cache location"
+pick_cache_root() {
+    # If the user already set HF_HOME explicitly, respect it.
+    if [[ -n "${HF_HOME:-}" ]]; then
+        echo "$HF_HOME" ; return
+    fi
+    # Prefer /workspace if it exists and is writable (the Vast convention).
+    if [[ -d /workspace && -w /workspace ]]; then
+        echo "/workspace/.cache/huggingface" ; return
+    fi
+    # Otherwise pick the mount with the most available space from a candidate
+    # list, falling back to $HOME.
+    local best="$HOME/.cache/huggingface"
+    local best_avail
+    best_avail=$(df --output=avail -B1G "$HOME" | tail -1 | tr -d ' ')
+    for cand in /data /mnt /scratch /tmp; do
+        if [[ -d "$cand" && -w "$cand" ]]; then
+            local avail
+            avail=$(df --output=avail -B1G "$cand" | tail -1 | tr -d ' ')
+            if (( avail > best_avail )); then
+                best="$cand/.cache/huggingface"
+                best_avail=$avail
+            fi
+        fi
+    done
+    echo "$best"
+}
+HF_HOME_PICK="$(pick_cache_root)"
+export HF_HOME="$HF_HOME_PICK"
+export HF_DATASETS_CACHE="$HF_HOME/datasets"
+export TRANSFORMERS_CACHE="$HF_HOME/transformers"
+mkdir -p "$HF_DATASETS_CACHE" "$TRANSFORMERS_CACHE"
+c_grn "HF_HOME              = $HF_HOME"
+c_grn "HF_DATASETS_CACHE    = $HF_DATASETS_CACHE"
+c_grn "TRANSFORMERS_CACHE   = $TRANSFORMERS_CACHE"
+df -h "$HF_HOME"
+
+# Persist in ~/.bashrc so a fresh SSH session inherits the same paths.
+if ! grep -q "HF_HOME=$HF_HOME" ~/.bashrc 2>/dev/null; then
+    cat >> ~/.bashrc <<EOF
+
+# Added by whisper-yoruba/scripts/setup_vast.sh — keep HF downloads off the
+# small root overlay. Filling the overlay killed a fine-tune mid-prepare.
+export HF_HOME=$HF_HOME
+export HF_DATASETS_CACHE=$HF_DATASETS_CACHE
+export TRANSFORMERS_CACHE=$TRANSFORMERS_CACHE
+EOF
+    c_grn "Persisted HF cache env vars to ~/.bashrc"
+else
+    c_grn "HF cache env vars already present in ~/.bashrc — skipping."
+fi
+
+# If the default $HOME cache already has downloads from an earlier run, move
+# them onto the big volume rather than re-downloading at 1 MB/s.
+if [[ -d "$HOME/.cache/huggingface" && "$HOME/.cache/huggingface" != "$HF_HOME" ]]; then
+    c_ylw "Found existing $HOME/.cache/huggingface — moving onto $HF_HOME to avoid re-download."
+    rsync -a --remove-source-files "$HOME/.cache/huggingface/" "$HF_HOME/" 2>/dev/null || true
+    find "$HOME/.cache/huggingface" -type d -empty -delete 2>/dev/null || true
+fi
+
+# ---------------------------------------------------------------------------
+# 2. System packages we rely on (tmux for detached training, git for the repo)
+# ---------------------------------------------------------------------------
+banner "2. System packages"
 need_apt=()
 for pkg in tmux git curl; do
     if ! command -v "$pkg" >/dev/null 2>&1; then
@@ -47,11 +113,11 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 2. Torch + CUDA — the single most common failure mode on Vast.
+# 3. Torch + CUDA — the single most common failure mode on Vast.
 #    Most Vast base images preinstall a CUDA torch; only reinstall if missing
 #    or if it's a CPU-only build that would silently make training useless.
 # ---------------------------------------------------------------------------
-banner "2. Torch + CUDA check"
+banner "3. Torch + CUDA check"
 torch_ok=0
 python - <<'PY' && torch_ok=1 || torch_ok=0
 import sys
@@ -82,7 +148,7 @@ fi
 #    Tracks requirements.txt minus torch (handled above) and mlx-whisper
 #    (Apple-Silicon only — would actually break transformers on Linux).
 # ---------------------------------------------------------------------------
-banner "3. Python dependencies (excluding torch + mlx)"
+banner "4. Python dependencies (excluding torch + mlx)"
 pip install --upgrade \
     "transformers>=4.46,<5" \
     "datasets>=2.20.0,<4.0" \
@@ -98,7 +164,7 @@ pip install --upgrade \
 # ---------------------------------------------------------------------------
 # 4. Verify the imports the training script actually needs
 # ---------------------------------------------------------------------------
-banner "4. Verify imports"
+banner "5. Verify imports"
 python - <<'PY'
 import importlib
 mods = [
@@ -117,7 +183,7 @@ PY
 # ---------------------------------------------------------------------------
 # 5. Final next-steps banner — actual commands to copy-paste
 # ---------------------------------------------------------------------------
-banner "5. Next steps"
+banner "6. Next steps"
 cat <<'EOF'
 
 Environment is ready. Now, in order:
