@@ -1,8 +1,21 @@
 # Omnilingual ASR — evaluation for the M1 foundation model
 
 **Drafted:** 2026-06-10
-**Status:** evaluation proposal — no experiments run yet
-**Purpose:** capture the argument for adding Meta's Omnilingual ASR as a second foundation-model arm in the thesis, alongside the existing Whisper-large-v3 + LoRA arm. This doc is the source the thesis chapter pulls from.
+**Status:** **considered, not pursued for this thesis.** See "Decision" below.
+**Purpose:** capture the argument for and against adopting Meta's Omnilingual ASR as a second foundation-model arm. Preserved as the written record of a deliberate engineering choice, so the viva question "did you consider X?" has a dated, defensible answer.
+
+## Decision (2026-06-10)
+
+**This thesis ships with Whisper-large-v3 + LoRA as the sole M1 foundation.** Omnilingual ASR was reviewed and rejected for the following reasons:
+
+1. **Time budget vs scope creep.** The thesis already has a coherent Whisper trajectory (v1 shipped, v2 shipped with documented overfit diagnosis, v3 in flight on a demographically balanced data mix). Adding a second foundation arm would roughly double trial cost and elapsed time. Finishing one strong arm beats half-finishing two.
+2. **Reproducibility maturity.** Whisper + HuggingFace Transformers is the de-facto industry standard; the supervisor, examiners, and any subsequent reader can reproduce results trivially. fairseq2 is a research-grade toolkit; not the right substrate for a master's thesis that prioritizes defensibility over novelty.
+3. **Apple Silicon deployment story.** The thesis target is M1/M2/M3 Macs via `mlx-whisper`, an Apple-team port of Whisper. Omnilingual has no equivalent — adopting it would force a CPU-only fallback or a research-grade ONNX/MLX port that becomes a thesis-within-the-thesis.
+4. **Release timing.** Omnilingual was released 2025-11-10 with v2 checkpoints landing in December 2025, weeks before the defense window. The risk that a quick adoption hides an immature toolchain bug outweighs the upside of running on the newest model.
+
+Where Omnilingual is relevant to the thesis writeup: **the related-work and future-work chapters**. The thesis will cite it as the strongest available alternative at the time of writing and propose a follow-up study (single-paragraph in "future work") that runs the comparison this document sketches. The full content below is preserved so that follow-up reader has the methodology pre-written.
+
+---
 
 For the why-this-decomposition argument, see [`methodology.md`](methodology.md). For the runtime pipeline this would plug into, see [`architecture.md`](architecture.md). For the v3 Whisper fine-tune in flight, see [`experiments/_active.md`](experiments/_active.md).
 
