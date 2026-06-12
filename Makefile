@@ -1,4 +1,4 @@
-.PHONY: help install index sample run talk chat talk-hf chat-hf wer wer-mlx wer-hf wer-ft wer-convo wer-convo-mlx wer-convo-hf record-convo finetune finetune-smoke finetune-small test-holdout merge-lora gpu-ssh test test-m1 test-m2 test-m3 test-m4 test-m5 test-chain clean-logs clean-outputs
+.PHONY: help install index sample run talk chat talk-hf chat-hf wer wer-mlx wer-hf wer-hf-sweep wer-ft wer-convo wer-convo-mlx wer-convo-hf record-convo finetune finetune-smoke finetune-small test-holdout merge-lora gpu-ssh test test-m1 test-m2 test-m3 test-m4 test-m5 test-chain clean-logs clean-outputs
 
 PYTHON ?= $(HOME)/miniforge3/envs/yoruba/bin/python
 SAMPLE_WAV := data/audio/fleurs_yo_sample.wav
@@ -77,11 +77,24 @@ SPLIT ?= validation
 wer-mlx:
 	$(PYTHON) -m scripts.eval_wer --asr mlx --n $(N) --split $(SPLIT) --out logs/wer_mlx.jsonl
 
+# `make wer-hf M=devalade/whisper-large-v3-yoruba-v3` overrides the default
+# config.M1_HF_MODEL for the run (and tags the output filename with the slug).
 wer-hf:
-	$(PYTHON) -m scripts.eval_wer --asr hf  --n $(N) --split $(SPLIT) --out logs/wer_hf.jsonl
+	$(PYTHON) -m scripts.eval_wer --asr hf  --n $(N) --split $(SPLIT) \
+		$(if $(M),--model $(M),) \
+		--out logs/wer_hf$(if $(M),_$(subst /,_,$(M)),).jsonl
 
 wer-ft:
-	$(PYTHON) -m scripts.eval_wer --asr hf  --n $(N) --split $(SPLIT) --out logs/wer_ft.jsonl
+	$(PYTHON) -m scripts.eval_wer --asr hf  --n $(N) --split $(SPLIT) \
+		$(if $(M),--model $(M),) --out logs/wer_ft.jsonl
+
+# Run wer-hf for each repo in MODELS, purging the HF cache between models.
+# Example: make wer-hf-sweep N=200 MODELS="devalade/whisper-large-v3-yoruba \
+#                                           devalade/whisper-large-v3-yoruba-v2 \
+#                                           devalade/whisper-large-v3-yoruba-v3"
+wer-hf-sweep:
+	@if [ -z "$(MODELS)" ]; then echo "set MODELS='<repo> <repo> ...'"; exit 2; fi
+	scripts/bench_models.sh $(N) $(MODELS)
 
 wer: wer-mlx wer-hf
 

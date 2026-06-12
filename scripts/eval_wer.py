@@ -8,6 +8,7 @@ so judging it on a diacritic-stripped reference is the fair comparison.
 Run:
     python -m scripts.eval_wer --asr mlx --n 50
     python -m scripts.eval_wer --asr hf  --n 50 --split validation
+    python -m scripts.eval_wer --asr hf  --n 200 --model devalade/whisper-large-v3-yoruba-v3
 """
 import argparse
 import io
@@ -41,11 +42,18 @@ def normalize(s: str) -> str:
     return " ".join(s.split())
 
 
-def load_asr(backend: str):
+def load_asr(backend: str, model: str | None = None, processor: str | None = None):
     if backend == "hf":
         from modules.m1_asr_hf import M1ASRHF
-        asr = M1ASRHF()
+        kwargs: dict[str, str] = {}
+        if model:
+            kwargs["model"] = model
+        if processor:
+            kwargs["processor"] = processor
+        asr = M1ASRHF(**kwargs)
     else:
+        if model or processor:
+            log.warning("--model/--processor are only honored by the hf backend; ignoring for mlx")
         from modules.m1_asr import M1ASR
         asr = M1ASR()
     asr.initialize()
@@ -87,9 +95,16 @@ def main() -> None:
     p.add_argument("--n", type=int, default=50,
                    help="max samples to evaluate (Whisper Large is slow on CPU/MPS)")
     p.add_argument("--out", default="logs/wer_results.jsonl")
+    p.add_argument("--model", default=None,
+                   help="HF model repo to evaluate (hf backend only); "
+                        "overrides config.M1_HF_MODEL")
+    p.add_argument("--processor", default=None,
+                   help="HF processor repo (hf backend only); "
+                        "overrides config.M1_HF_PROCESSOR")
     args = p.parse_args()
 
-    asr = load_asr(args.asr)
+    asr = load_asr(args.asr, model=args.model, processor=args.processor)
+    model_used = getattr(asr, "model_repo", None) or args.model or "(mlx)"
 
     results: list[dict] = []
     refs: list[str] = []
@@ -119,14 +134,14 @@ def main() -> None:
         sys.exit(1)
 
     agg = jiwer.wer(refs, hyps)
-    print(f"\n=== {args.asr.upper()} on FLEURS yo_ng/{args.split} (n={len(results)}) ===")
+    print(f"\n=== {args.asr.upper()} [{model_used}] on FLEURS yo_ng/{args.split} (n={len(results)}) ===")
     print(f"Aggregate WER: {agg * 100:.2f}%")
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8") as f:
         f.write(json.dumps({
-            "backend": args.asr, "split": args.split,
+            "backend": args.asr, "model": model_used, "split": args.split,
             "n": len(results), "wer": agg,
         }) + "\n")
         for r in results:

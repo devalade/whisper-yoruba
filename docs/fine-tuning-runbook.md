@@ -120,7 +120,7 @@ Upload time: 2–5 minutes for ~3 GB depending on upstream bandwidth.
 On your **local Mac**, edit `config.py`:
 
 ```python
-M1_HF_MODEL = "devalade/whisper-large-v3-yoruba"
+M1_HF_MODEL = "devalade/whisper-large-v3-yoruba-v3"
 ```
 
 Then:
@@ -131,6 +131,13 @@ make test-m1
 
 # Quantitative — compare against the baseline
 make wer-hf N=200
+
+# Compare several checkpoints back-to-back. Purges each model's HF cache
+# after its bench so we don't hold >1 whisper-large-v3 (~3 GB) on disk at
+# once. Output files are auto-tagged with the model slug.
+make wer-hf-sweep N=200 MODELS="devalade/whisper-large-v3-yoruba \
+                                devalade/whisper-large-v3-yoruba-v2 \
+                                devalade/whisper-large-v3-yoruba-v3"
 
 # End-to-end demo
 make talk-hf       # push-to-talk RAG
