@@ -45,6 +45,55 @@ For Whisper-large-v3 fine-tunes specifically, see `docs/experiments/` for our ow
 
 ---
 
+## Cascaded pipeline systems
+
+### Oyesanmi & Olukanmi (2026) — *Towards Yorùbà-Speaking Google Maps Navigation*
+
+- **Citation**: Oyesanmi, F. & Olukanmi, P. (2026). Towards Yorùbà-Speaking Google Maps Navigation. *SAIEE Africa Research Journal*, **117**(2). https://www.scielo.org.za/scielo.php?pid=S1991-16962026000200003&script=sci_arttext&tlng=en
+- **Task**: English → Yorùbá speech-to-speech translation for navigation narration. **Cascaded ASR → MT → TTS architecture** — same shape as ours but inverted direction and no retrieval stage.
+- **Contribution**: not a new model — a survey-style evaluation of 5 ASR + 4 MT + 5 TTS systems to assess feasibility of Yorùbá navigation assistance.
+- **Models evaluated**:
+  - **ASR**: WhisperAI, Facebook FAIRSEQ S2T, Microsoft UniSpeech-SAT, Nvidia Conformer-Transducer, Google Speech Library.
+  - **MT**: DeepL, LibreTranslate, NLLB (Meta), Google Translate.
+  - **TTS**: Seamless TTS, MMS TTS, SpeechT5, Coqui TTS, YourTTS.
+- **Evaluation**: Word Error Rate via raw Levenshtein distance. Tested in serene + noisy conditions. Focus on numerals and location names.
+- **Reported numbers**:
+  - **ASR**: WhisperAI best at 33% WER in noise; meaning preserved despite errors. 4 of 5 ASR systems usable.
+  - **MT**: 41–48% WER on direction narration. Severe failures on Yorùbá numerals and proper nouns.
+  - **TTS**: only MMS-TTS-yor produces usable Yorùbá; pronunciation "suboptimal", flagged as needing fine-tuning.
+- **Datasets they cite**: OpenSLR86 (~4 h), Lagos-NWU (~2 h 45 min), Bibeli Mimo/NIV (~93 h, religious-only). ~7 h combined excluding religious text.
+
+**How it relates to our pipeline**
+
+| Module | Our choice | Theirs (best of their cohort) | Notes |
+|---|---|---|---|
+| M1 ASR | `whisper-large-v3` fine-tuned on Hidi-agili + chukypedro + FLEURS | WhisperAI (base) | Confirms Whisper as the right family. Their 33% WER (raw Levenshtein) is not directly comparable to our YASR-Bench numbers (`docs/yoruba-wer-evaluation.md`) but it's a useful order-of-magnitude reference. |
+| M2 Diacritic | `Davlan/mT5_base_yoruba_adr` | *not addressed* | They acknowledge tone marks matter but don't address restoration. **This is something we have that they don't** — frame in the thesis as a contribution. |
+| M3 / M5 MT | `facebook/nllb-200-distilled-600M` (both directions) | Google Translate (their claim) | They state "only Google Translate supports English-to-Yorùbà translation." This is incorrect at publication date — NLLB-200 supports yor_Latn in both directions. Worth flagging as a small correction. |
+| M5 TTS | `facebook/mms-tts-yor` | MMS TTS | Independent validation of the choice. Their "needs fine-tuning" caveat is a citable hook for future work in our thesis. |
+| M4 RAG | Mistral-7B + FAISS over Yorùbá Wikipedia | *no analogue* | Their task is narration, not Q&A — they don't need retrieval. No comparison point. |
+
+**Methodological points worth borrowing**
+
+1. **Noisy-condition evaluation**: their best ASR number is in noise (33%), not clean speech. We only evaluate on FLEURS (clean read). Adding a torchaudio-noise-augmented variant of YASR-Bench would strengthen the thesis and is cheap to add.
+2. **WER ≠ semantic preservation**: the paper explicitly argues raw WER is insufficient for assessing meaning. This is the same argument we make for `Y-WER-perm` / `Y-CER` (`docs/yoruba-wer-evaluation.md`) — citing this paper in support is honest framing.
+3. **Numeral handling**: they flag Yorùbá numerals as a systematic failure mode for MT. We haven't probed this in M3/M5. Worth a small slice in evaluation: "WER on the numerals subset of FLEURS".
+
+**Limitations they acknowledge** (citable as motivation for our design choices):
+
+- Cascaded latency from multiple sequential models.
+- Insufficient training data for low-resource Yorùbá.
+- Complex Yorùbá morphology and numeral systems poorly handled by current MT.
+- WER metric insufficient for assessing semantic preservation.
+- ~7 hours of usable public Yorùbá audio (excluding religious text).
+
+**Differences worth being clear about in the thesis**
+
+- Their data regime (~7 h) is much smaller than ours (Hidi-agili `yoruba_tts_dataset` alone is ~9 k clips ≈ 15+ h; the full v3 mix is multiples of that). We are operating well past their data ceiling.
+- They evaluate off-the-shelf models. We *fine-tune*. Different question, but their numbers give the "starting point" against which our deltas should be reported.
+
+---
+
 ## Adding a new entry
 
 Same structure as above:
